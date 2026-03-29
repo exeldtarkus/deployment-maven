@@ -55,7 +55,7 @@ A Maven plugin to **deploy Spring / Spring Boot applications** into modern infra
           │                                │
           ▼                                ▼
 ┌──────────────────────┐        ┌──────────────────────┐
-│   Kubernetes Flow     │        │    Tomcat Flow       │
+│   Kubernetes Flow    │        │    Tomcat Flow       │
 ├──────────────────────┤        ├──────────────────────┤
 │ Build Docker Image   │        │ Build WAR            │
 │ Push to Nexus        │        │ Deploy via Manager   │
