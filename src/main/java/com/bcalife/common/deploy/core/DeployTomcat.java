@@ -35,7 +35,10 @@ public class DeployTomcat {
             String appId = userInput.isEmpty() ? projectId : userInput;
             UI.printInfo("Target App ID: " + UI.CYAN + appId + UI.RESET);
 
-            Path secretPath = Paths.get(deployDir, "secret-tomcat.json");
+            Path secretDir = Paths.get(deployDir);
+            if (!Files.exists(secretDir)) Files.createDirectories(secretDir);
+            Path secretPath = secretDir.resolve("secret-tomcat.json");
+            
             List<Server> servers = new ArrayList<>();
             Server selectedServer = null;
 
@@ -66,8 +69,18 @@ public class DeployTomcat {
                 selectedServer.name = extractNameFromUrl(selectedServer.url);
                 System.out.print(UI.GRAY + " > Username: " + UI.RESET);
                 selectedServer.username = sc.nextLine().trim();
+                
+                // MASKING PASSWORD
                 System.out.print(UI.GRAY + " > Password: " + UI.RESET);
-                selectedServer.password = sc.nextLine().trim();
+                Console console = System.console();
+                if (console != null) {
+                    // Jika console tersedia (jalan di Terminal native), password di-hide
+                    char[] passwordArray = console.readPassword();
+                    selectedServer.password = new String(passwordArray);
+                } else {
+                    // Fallback jika dijalankan di IDE / background task yang tidak memiliki native console
+                    selectedServer.password = sc.nextLine().trim();
+                }
 
                 System.out.print(UI.GRAY + " > Save server? (y/n): " + UI.RESET);
                 if (sc.nextLine().equalsIgnoreCase("y")) {
@@ -77,6 +90,15 @@ public class DeployTomcat {
                 }
             }
             UI.printInfo("Target Server: " + UI.CYAN + selectedServer.name + UI.RESET);
+
+            System.out.println(UI.GRAY + " [*] Verifying connection and credentials..." + UI.RESET);
+            if (!checkTomcatAuth(selectedServer.url, selectedServer.username, selectedServer.password)) {
+                UI.printError("Connection to Tomcat failed or Unauthorized (401/403).");
+                System.out.println(UI.YELLOW + "     Ensure the URL is correct, Tomcat is running, and the user has the 'manager-script' role." + UI.RESET);
+                System.exit(1);
+            }
+            UI.printSuccess("Connected to Tomcat successfully!");
+
 
             // [STEP 2]
             UI.printStep("2/4", "Maven Profile Selection");
@@ -105,6 +127,10 @@ public class DeployTomcat {
                 System.exit(1);
             }
             File war = findWar();
+            if (war == null) {
+                UI.printError("WAR file not found in target/ directory!");
+                System.exit(1);
+            }
             UI.printSuccess("Artifact ready: " + war.getName());
 
             // [STEP 4]
@@ -122,11 +148,28 @@ public class DeployTomcat {
 
         } catch (Exception e) {
             UI.printError("System error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    // --- REUSE OLD LOGIC (loadServers, saveServers, runCommand, deployWar, dll) ---
-    // Pastikan di runCommand ditambahkan penanganan JAVA_HOME seperti sebelumnya
+    static boolean checkTomcatAuth(String urlStr, String user, String pass) {
+        try {
+            String testUrl = urlStr + "/manager/text/list";
+            HttpURLConnection conn = (HttpURLConnection) new URL(testUrl).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5000); // Timeout 5 detik agar tidak hang
+            conn.setReadTimeout(5000);
+            
+            String auth = Base64.getEncoder().encodeToString((user + ":" + pass).getBytes());
+            conn.setRequestProperty("Authorization", "Basic " + auth);
+            
+            int responseCode = conn.getResponseCode();
+            return responseCode == 200; // Hanya return true jika 200 OK
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     static boolean runCommand(String cmd) {
         try {
             boolean isWin = System.getProperty("os.name").toLowerCase().contains("win");
@@ -185,9 +228,15 @@ public class DeployTomcat {
 
     static String deployWar(String urlStr, File war, String user, String pass) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
-        conn.setDoOutput(true); conn.setRequestMethod("PUT");
+        conn.setDoOutput(true); 
+        conn.setRequestMethod("PUT");
+        
+        conn.setChunkedStreamingMode(8192);
+        conn.setRequestProperty("Content-Type", "application/octet-stream");
+
         String auth = Base64.getEncoder().encodeToString((user + ":" + pass).getBytes());
         conn.setRequestProperty("Authorization", "Basic " + auth);
+        
         try (OutputStream os = conn.getOutputStream(); FileInputStream fis = new FileInputStream(war)) {
             byte[] buf = new byte[8192]; int len;
             while ((len = fis.read(buf)) != -1) os.write(buf, 0, len);
