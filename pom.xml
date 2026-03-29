@@ -1,22 +1,57 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- BASIC -->
     <groupId>com.tark</groupId>
     <artifactId>deployment-maven</artifactId>
     <version>1.0.0</version>
     <packaging>maven-plugin</packaging>
 
-    <name>Deployment Maven Plugin</name>
+    <name>deployment-maven</name>
+    <description>Maven plugin for deployment automation (Kubernetes and Tomcat)</description>
+    <url>https://github.com/exeldtarkus/deployment-maven</url>
 
+    <!-- LICENSE -->
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <!-- DEVELOPER -->
+    <developers>
+        <developer>
+            <id>exel</id>
+            <name>Exel Tarkus</name>
+            <email>your-email@example.com</email>
+        </developer>
+    </developers>
+
+    <!-- SCM -->
+    <scm>
+        <connection>scm:git:git://github.com/exeldtarkus/deployment-maven.git</connection>
+        <developerConnection>scm:git:ssh://github.com/exeldtarkus/deployment-maven.git</developerConnection>
+        <url>https://github.com/exeldtarkus/deployment-maven</url>
+    </scm>
+
+    <!-- JAVA 8 COMPAT -->
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <!-- DEPENDENCIES -->
     <dependencies>
-        <!-- Maven Plugin API -->
         <dependency>
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>
             <version>3.9.6</version>
         </dependency>
 
-        <!-- Annotation -->
         <dependency>
             <groupId>org.apache.maven.plugin-tools</groupId>
             <artifactId>maven-plugin-annotations</artifactId>
@@ -25,9 +60,32 @@
         </dependency>
     </dependencies>
 
+    <!-- OSSRH -->
+    <distributionManagement>
+        <repository>
+            <id>ossrh</id>
+            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <build>
         <plugins>
-            <!-- Generate plugin descriptor -->
+
+            <!-- COMPILER (JAVA 8 UNIVERSAL) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <release>8</release>
+                </configuration>
+            </plugin>
+
+            <!-- MAVEN PLUGIN -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-plugin-plugin</artifactId>
@@ -44,23 +102,66 @@
                 </executions>
             </plugin>
 
-            <!-- Annotation processor -->
+            <!-- SOURCE -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- JAVADOC -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- GPG SIGN -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- SONATYPE -->
+            <plugin>
+                <groupId>org.sonatype.plugins</groupId>
+                <artifactId>nexus-staging-maven-plugin</artifactId>
+                <version>1.6.13</version>
+                <extensions>true</extensions>
                 <configuration>
-                    <source>8</source>
-                    <target>8</target>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.apache.maven.plugin-tools</groupId>
-                            <artifactId>maven-plugin-annotations</artifactId>
-                            <version>3.10.2</version>
-                        </path>
-                    </annotationProcessorPaths>
+                    <serverId>ossrh</serverId>
+                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
+                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
                 </configuration>
             </plugin>
+
         </plugins>
     </build>
+
 </project>
