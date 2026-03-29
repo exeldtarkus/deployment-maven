@@ -19,6 +19,7 @@ public class DeployTomcat {
 
     public static void main(String[] args) {
         try {
+            String deployDir = "deployment";
             Scanner sc = new Scanner(System.in);
             String projectId = (args.length > 0 && args[0] != null && !args[0].isEmpty())
                 ? args[0]
@@ -34,7 +35,7 @@ public class DeployTomcat {
             String appId = userInput.isEmpty() ? projectId : userInput;
             UI.printInfo("Target App ID: " + UI.CYAN + appId + UI.RESET);
 
-            Path secretPath = Paths.get("deploy", "secret-tomcat.json");
+            Path secretPath = Paths.get(deployDir, "secret-tomcat.json");
             List<Server> servers = new ArrayList<>();
             Server selectedServer = null;
 

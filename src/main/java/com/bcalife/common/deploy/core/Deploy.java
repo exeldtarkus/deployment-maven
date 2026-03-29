@@ -29,8 +29,9 @@ public class Deploy {
         ;
 
         // Initialization
-        String scriptDir = System.getProperty("user.dir"); 
+        String scriptDir = System.getProperty("user.dir");
         String rootDir = scriptDir; // Asumsi dijalankan dari root folder
+        String deployDir = "deployment";
         Path pomPath = Paths.get(rootDir, "pom.xml");
 
         // Clear screen (ANSI escape code)
@@ -109,8 +110,8 @@ public class Deploy {
 
         // --- STEP 3: Environment Validation ---
         System.out.println("\n" + YELLOW + "[2/7] Validating local environment..." + RESET);
-        Path deployM2Dir = Paths.get(rootDir, "deploy", ".m2");
-        Path deployLibsDir = Paths.get(rootDir, "deploy", "libs");
+        Path deployM2Dir = Paths.get(rootDir, deployDir, ".m2");
+        Path deployLibsDir = Paths.get(rootDir, deployDir, "libs");
 
         Files.createDirectories(deployM2Dir);
         Files.createDirectories(deployLibsDir);
@@ -369,7 +370,7 @@ public class Deploy {
         
         if ("NO_HELM".equals(checkHelm)) {
             System.out.println(LIGHT_YELLOW + "[*] Global Helm not found. Setting up Portable Helm..." + RESET);
-            Path binDir = Paths.get(rootDir, "deploy", ".bin");
+            Path binDir = Paths.get(rootDir, deployDir, ".bin");
             Files.createDirectories(binDir);
             Path helmExe = IS_WINDOWS ? binDir.resolve("windows-amd64/helm.exe") : binDir.resolve("helm");
 
