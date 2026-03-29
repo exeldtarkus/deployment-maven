@@ -129,7 +129,7 @@ public class Deploy {
             if (m2Path.isEmpty()) {
                 m2PathReal = defaultM2Path;
             } else {
-                m2Path = m2Path.replaceFirst("^~", defaultHome.replace("\\", "\\\\")); 
+                m2Path = m2Path.replaceFirst("^~", defaultHome.replace("\\", "\\\\"));
                 m2PathReal = Paths.get(m2Path);
             }
 
@@ -238,7 +238,7 @@ public class Deploy {
                 String tmpDir = System.getProperty("java.io.tmpdir");
                 
                 String mvnDeployCmd = IS_WINDOWS ?
-                        "Set-Location \"" + tmpDir + "\"; mvn deploy:deploy-file " : 
+                        "Set-Location \"" + tmpDir + "\"; mvn deploy:deploy-file " :
                         "cd \"" + tmpDir + "\" && mvn deploy:deploy-file ";
 
                 mvnDeployCmd += "-DgroupId=\"" + groupId + "\" " +
@@ -271,7 +271,7 @@ public class Deploy {
 
         System.out.println(GRAY + "[*] Checking Docker insecure-registries configuration..." + RESET);
         
-        String dockerInfoCmd = IS_WINDOWS ? 
+        String dockerInfoCmd = IS_WINDOWS ?
             "if (docker info 2>$null | Select-String '" + targetRegistry + "') { echo 'FOUND' } else { echo 'MISSING' }" : 
             "docker info 2>/dev/null | grep -A 20 'Insecure Registries:' | grep '" + targetRegistry + "' || echo 'MISSING'";
         String dockerInfoStr = execCommand(dockerInfoCmd, false).trim();
