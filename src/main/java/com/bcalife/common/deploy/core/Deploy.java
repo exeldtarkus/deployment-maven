@@ -22,11 +22,12 @@ public class Deploy {
     private static final String LIGHT_YELLOW = "\033[93m";
 
     public static void main(String[] args) throws Exception {
+        String pId = (args.length > 0 && args[0] != null && !args[0].isEmpty()) ? args[0] : "APP";
+        run(pId, new ArrayList<>());
+    }
+
+    public static void run(String projectId, List<String> requiredPackages) throws Exception {
         Scanner scanner = new Scanner(System.in);
-        String projectId = (args.length > 0 && args[0] != null && !args[0].isEmpty())
-            ? args[0]
-            : "APP"
-        ;
 
         // Initialization
         String scriptDir = System.getProperty("user.dir");
@@ -188,78 +189,92 @@ public class Deploy {
         Matcher passMatcher = Pattern.compile("<id>nexus</id>[\\s\\S]{0,200}?<password>(.*?)</password>").matcher(settingsContent);
         if (passMatcher.find()) nexusPass = passMatcher.group(1).trim();
 
-        String[] libs = DeployLibs.LIST;
+        List<String> libs = (requiredPackages != null) ? requiredPackages : new ArrayList<>();
 
-        for (String lib : libs) {
-            String[] parts = lib.split(":");
-            String groupId = parts[0];
-            String artifactId = parts[1];
-            String version = parts[2];
+        if (libs.isEmpty()) {
+            System.out.println(GRAY + "[*] No packages specified for deployment." + RESET);
+        }
 
-            String targetRepoName = version.toUpperCase().contains("SNAPSHOT") ? "maven-snapshots" : "maven-releases";
-            String dynamicRepoUrl = "http://" + nexusRegistryUrl + ":" + nexusRegistryPort + "/repository/" + targetRepoName;
+        if (!libs.isEmpty()) {
+            System.out.println(GRAY + "[*] Processing manual install packages..." + RESET);
 
-            String groupPath = groupId.replace(".", "/");
-            Path localM2Repo = Paths.get(System.getProperty("user.home"), ".m2", "repository", groupPath, artifactId, version);
-            Path pomFile = localM2Repo.resolve(artifactId + "-" + version + ".pom");
-            Path jarFile = localM2Repo.resolve(artifactId + "-" + version + ".jar");
+            for (String lib : libs) {
+                // correct format (groupId:artifactId:version)
+                String[] parts = lib.trim().split(":");
+                if (parts.length < 3) {
+                    System.out.println(YELLOW + "    > [!] Invalid format for package: " + lib + " (Expected groupId:artifactId:version). Skipping." + RESET);
+                    continue;
+                }
 
-            String fileName = "";
-            Path localSrc = null;
-            if (Files.exists(pomFile)) {
-                fileName = artifactId + "-" + version + ".pom";
-                localSrc = pomFile;
-            } else if (Files.exists(jarFile)) {
-                fileName = artifactId + "-" + version + ".jar";
-                localSrc = jarFile;
-            } else {
-                System.out.println(RED + "[X] CRITICAL ERROR: Artifact not found (.jar/.pom) for " + artifactId + ":" + version + RESET);
-                System.exit(1);
-            }
+                String groupId = parts[0];
+                String artifactId = parts[1];
+                String version = parts[2];
 
-            Path dest = deployLibsDir.resolve(fileName);
-            String nexusJarUrl = dynamicRepoUrl + "/" + groupPath + "/" + artifactId + "/" + version + "/" + fileName;
+                String targetRepoName = version.toUpperCase().contains("SNAPSHOT") ? "maven-snapshots" : "maven-releases";
+                String dynamicRepoUrl = "http://" + nexusRegistryUrl + ":" + nexusRegistryPort + "/repository/" + targetRepoName;
 
-            String checkUrl = nexusJarUrl;
-            if (version.toUpperCase().contains("SNAPSHOT")) {
-                checkUrl = dynamicRepoUrl + "/" + groupPath + "/" + artifactId + "/" + version + "/maven-metadata.xml";
-            }
+                String groupPath = groupId.replace(".", "/");
+                Path localM2Repo = Paths.get(System.getProperty("user.home"), ".m2", "repository", groupPath, artifactId, version);
+                Path pomFile = localM2Repo.resolve(artifactId + "-" + version + ".pom");
+                Path jarFile = localM2Repo.resolve(artifactId + "-" + version + ".jar");
 
-            System.out.println("    > Checking Nexus for " + artifactId + ":" + version + " (Target: " + targetRepoName + ")...");
-            int httpStatus = ExecHttp.GET(checkUrl, nexusUser, nexusPass);
-
-            if (httpStatus == 200) {
-                System.out.println("    > " + GREEN + "[OK]" + RESET + " Artifact already exists in Nexus. (Skipping push)");
-                Files.copy(localSrc, dest, StandardCopyOption.REPLACE_EXISTING);
-            } else if (httpStatus == 404) {
-                System.out.println("    > " + YELLOW + "[!] Not found in Nexus. Pushing now..." + RESET);
-                Files.copy(localSrc, dest, StandardCopyOption.REPLACE_EXISTING);
-
-                String tmpDir = System.getProperty("java.io.tmpdir");
-                
-                String mvnDeployCmd = IS_WINDOWS ?
-                        "Set-Location \"" + tmpDir + "\"; mvn deploy:deploy-file " :
-                        "cd \"" + tmpDir + "\" && mvn deploy:deploy-file ";
-
-                mvnDeployCmd += "-DgroupId=\"" + groupId + "\" " +
-                        "-DartifactId=\"" + artifactId + "\" " +
-                        "-Dversion=\"" + version + "\" " +
-                        "-Dpackaging=" + (fileName.endsWith(".jar") ? "jar" : "pom") + " " +
-                        "-Dfile=\"" + dest.toAbsolutePath() + "\" " +
-                        "-DrepositoryId=nexus " +
-                        "-Durl=\"" + dynamicRepoUrl + "\" " +
-                        "--settings \"" + deployM2File.toAbsolutePath() + "\" -B";
-
-                int mvnExit = execProcessInherit(mvnDeployCmd);
-                if (mvnExit == 0) {
-                    System.out.println("    > " + GREEN + "[OK]" + RESET + " Successfully pushed to Nexus.");
+                String fileName = "";
+                Path localSrc = null;
+                if (Files.exists(pomFile)) {
+                    fileName = artifactId + "-" + version + ".pom";
+                    localSrc = pomFile;
+                } else if (Files.exists(jarFile)) {
+                    fileName = artifactId + "-" + version + ".jar";
+                    localSrc = jarFile;
                 } else {
-                    System.out.println(RED + "[X] CRITICAL ERROR: Failed to push to Nexus." + RESET);
+                    System.out.println(RED + "[X] CRITICAL ERROR: Artifact not found (.jar/.pom) for " + artifactId + ":" + version + RESET);
                     System.exit(1);
                 }
-            } else {
-                System.out.println(RED + "[X] CRITICAL ERROR: Unexpected HTTP status " + httpStatus + " from Nexus." + RESET);
-                System.exit(1);
+
+                Path dest = deployLibsDir.resolve(fileName);
+                String nexusJarUrl = dynamicRepoUrl + "/" + groupPath + "/" + artifactId + "/" + version + "/" + fileName;
+
+                String checkUrl = nexusJarUrl;
+                if (version.toUpperCase().contains("SNAPSHOT")) {
+                    checkUrl = dynamicRepoUrl + "/" + groupPath + "/" + artifactId + "/" + version + "/maven-metadata.xml";
+                }
+
+                System.out.println("    > Checking Nexus for " + artifactId + ":" + version + " (Target: " + targetRepoName + ")...");
+                int httpStatus = ExecHttp.GET(checkUrl, nexusUser, nexusPass);
+
+                if (httpStatus == 200) {
+                    System.out.println("    > " + GREEN + "[OK]" + RESET + " Artifact already exists in Nexus. (Skipping push)");
+                    Files.copy(localSrc, dest, StandardCopyOption.REPLACE_EXISTING);
+                } else if (httpStatus == 404) {
+                    System.out.println("    > " + YELLOW + "[!] Not found in Nexus. Pushing now..." + RESET);
+                    Files.copy(localSrc, dest, StandardCopyOption.REPLACE_EXISTING);
+
+                    String tmpDir = System.getProperty("java.io.tmpdir");
+                    
+                    String mvnDeployCmd = IS_WINDOWS ?
+                            "Set-Location \"" + tmpDir + "\"; mvn deploy:deploy-file " :
+                            "cd \"" + tmpDir + "\" && mvn deploy:deploy-file ";
+
+                    mvnDeployCmd += "-DgroupId=\"" + groupId + "\" " +
+                            "-DartifactId=\"" + artifactId + "\" " +
+                            "-Dversion=\"" + version + "\" " +
+                            "-Dpackaging=" + (fileName.endsWith(".jar") ? "jar" : "pom") + " " +
+                            "-Dfile=\"" + dest.toAbsolutePath() + "\" " +
+                            "-DrepositoryId=nexus " +
+                            "-Durl=\"" + dynamicRepoUrl + "\" " +
+                            "--settings \"" + deployM2File.toAbsolutePath() + "\" -B";
+
+                    int mvnExit = execProcessInherit(mvnDeployCmd);
+                    if (mvnExit == 0) {
+                        System.out.println("    > " + GREEN + "[OK]" + RESET + " Successfully pushed to Nexus.");
+                    } else {
+                        System.out.println(RED + "[X] CRITICAL ERROR: Failed to push to Nexus." + RESET);
+                        System.exit(1);
+                    }
+                } else {
+                    System.out.println(RED + "[X] CRITICAL ERROR: Unexpected HTTP status " + httpStatus + " from Nexus." + RESET);
+                    System.exit(1);
+                }
             }
         }
 

@@ -4,6 +4,7 @@ import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
+import java.util.List;
 
 import com.bcalife.common.deploy.core.Deploy;
 
@@ -13,11 +14,14 @@ public class K8sMojo extends AbstractMojo {
     @Parameter(property = "projectId", defaultValue = "UNKNOWN")
     private String projectId;
 
+    @Parameter(property = "requiredPackages")
+    private List<String> requiredPackages;
+
     @Override
     public void execute() throws MojoExecutionException {
         try {
             getLog().info("Starting Kubernetes Deployment...");
-            Deploy.main(new String[]{projectId});
+            Deploy.run(projectId, requiredPackages);
         } catch (Exception e) {
             throw new MojoExecutionException("K8s deployment failed", e);
         }
