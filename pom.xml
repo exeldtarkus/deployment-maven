@@ -1,12 +1,14 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- BASIC -->
-    <groupId>com.tark</groupId>
+    <!-- ========================= -->
+    <!-- BASIC INFO -->
+    <!-- ========================= -->
+    <groupId>io.github.exeldtarkus</groupId>
     <artifactId>deployment-maven</artifactId>
     <version>1.0.0</version>
     <packaging>maven-plugin</packaging>
@@ -15,7 +17,9 @@
     <description>Maven plugin for deployment automation (Kubernetes and Tomcat)</description>
     <url>https://github.com/exeldtarkus/deployment-maven</url>
 
+    <!-- ========================= -->
     <!-- LICENSE -->
+    <!-- ========================= -->
     <licenses>
         <license>
             <name>MIT License</name>
@@ -23,28 +27,37 @@
         </license>
     </licenses>
 
+    <!-- ========================= -->
     <!-- DEVELOPER -->
+    <!-- ========================= -->
     <developers>
         <developer>
             <id>exel</id>
             <name>Exel Tarkus</name>
-            <email>your-email@example.com</email>
+            <email>exeldtarkus@gmail.com</email>
         </developer>
     </developers>
 
+    <!-- ========================= -->
     <!-- SCM -->
+    <!-- ========================= -->
     <scm>
         <connection>scm:git:git://github.com/exeldtarkus/deployment-maven.git</connection>
         <developerConnection>scm:git:ssh://github.com/exeldtarkus/deployment-maven.git</developerConnection>
         <url>https://github.com/exeldtarkus/deployment-maven</url>
     </scm>
 
-    <!-- JAVA 8 COMPAT -->
+    <!-- ========================= -->
+    <!-- PROPERTIES -->
+    <!-- ========================= -->
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>8</maven.compiler.release>
     </properties>
 
+    <!-- ========================= -->
     <!-- DEPENDENCIES -->
+    <!-- ========================= -->
     <dependencies>
         <dependency>
             <groupId>org.apache.maven</groupId>
@@ -60,22 +73,34 @@
         </dependency>
     </dependencies>
 
-    <!-- OSSRH -->
+    <!-- ========================= -->
+    <!-- DISTRIBUTION (CENTRAL NEW) -->
+    <!-- ========================= -->
+    <!-- <distributionManagement>
+        <repository>
+            <id>central</id>
+            <url>https://central.sonatype.com/api/v1/publisher</url>
+        </repository>
+    </distributionManagement> -->
+
     <distributionManagement>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
         <repository>
             <id>ossrh</id>
             <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
         </repository>
-        <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
-        </snapshotRepository>
     </distributionManagement>
 
+    <!-- ========================= -->
+    <!-- BUILD -->
+    <!-- ========================= -->
     <build>
         <plugins>
 
-            <!-- COMPILER (JAVA 8 UNIVERSAL) -->
+            <!-- COMPILER -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -95,6 +120,7 @@
                 </configuration>
                 <executions>
                     <execution>
+                        <id>default-descriptor</id>
                         <goals>
                             <goal>descriptor</goal>
                         </goals>
@@ -146,19 +172,6 @@
                         </goals>
                     </execution>
                 </executions>
-            </plugin>
-
-            <!-- SONATYPE -->
-            <plugin>
-                <groupId>org.sonatype.plugins</groupId>
-                <artifactId>nexus-staging-maven-plugin</artifactId>
-                <version>1.6.13</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <serverId>ossrh</serverId>
-                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
-                </configuration>
             </plugin>
 
         </plugins>
