@@ -1,4 +1,4 @@
-package com.tark.deployment.core;
+package com.bcalife.common.deploy.core;
 
 public class DeployLibs {
     public static final String[] LIST = {

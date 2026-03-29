@@ -1,4 +1,4 @@
-package com.tark.deployment.core;
+package com.bcalife.common.deploy.core;
 
 import java.io.*;
 import java.net.HttpURLConnection;

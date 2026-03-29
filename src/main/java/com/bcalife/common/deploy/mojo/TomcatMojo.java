@@ -1,14 +1,14 @@
-package com.tark.deployment.mojo;
+package com.bcalife.common.deploy.mojo;
 
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
-import com.tark.deployment.core.Deploy;
+import com.bcalife.common.deploy.core.DeployTomcat;
 
-@Mojo(name = "k8s")
-public class K8sMojo extends AbstractMojo {
+@Mojo(name = "tomcat")
+public class TomcatMojo extends AbstractMojo {
 
     @Parameter(property = "projectId", defaultValue = "UNKNOWN")
     private String projectId;
@@ -16,10 +16,10 @@ public class K8sMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         try {
-            getLog().info("Starting Kubernetes Deployment...");
-            Deploy.main(new String[]{projectId});
+            getLog().info("Starting Tomcat Deployment...");
+            DeployTomcat.main(new String[]{projectId});
         } catch (Exception e) {
-            throw new MojoExecutionException("K8s deployment failed", e);
+            throw new MojoExecutionException("Tomcat deployment failed", e);
         }
     }
 }

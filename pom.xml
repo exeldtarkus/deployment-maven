@@ -1,21 +1,20 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
-         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+        http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <modelVersion>4.0.0</modelVersion>
 
     <!-- ========================= -->
     <!-- BASIC INFO -->
     <!-- ========================= -->
-    <groupId>io.github.exeldtarkus</groupId>
+    <groupId>com.bcalife.common.deploy</groupId>
     <artifactId>deployment-maven</artifactId>
     <version>1.0.0</version>
     <packaging>maven-plugin</packaging>
 
     <name>deployment-maven</name>
     <description>Maven plugin for deployment automation (Kubernetes and Tomcat)</description>
-    <url>https://github.com/exeldtarkus/deployment-maven</url>
 
     <!-- ========================= -->
     <!-- LICENSE -->
@@ -26,26 +25,6 @@
             <url>https://opensource.org/licenses/MIT</url>
         </license>
     </licenses>
-
-    <!-- ========================= -->
-    <!-- DEVELOPER -->
-    <!-- ========================= -->
-    <developers>
-        <developer>
-            <id>exel</id>
-            <name>Exel Tarkus</name>
-            <email>exeldtarkus@gmail.com</email>
-        </developer>
-    </developers>
-
-    <!-- ========================= -->
-    <!-- SCM -->
-    <!-- ========================= -->
-    <scm>
-        <connection>scm:git:git://github.com/exeldtarkus/deployment-maven.git</connection>
-        <developerConnection>scm:git:ssh://github.com/exeldtarkus/deployment-maven.git</developerConnection>
-        <url>https://github.com/exeldtarkus/deployment-maven</url>
-    </scm>
 
     <!-- ========================= -->
     <!-- PROPERTIES -->
@@ -63,6 +42,7 @@
             <groupId>org.apache.maven</groupId>
             <artifactId>maven-plugin-api</artifactId>
             <version>3.9.6</version>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -72,27 +52,6 @@
             <scope>provided</scope>
         </dependency>
     </dependencies>
-
-    <!-- ========================= -->
-    <!-- DISTRIBUTION (CENTRAL NEW) -->
-    <!-- ========================= -->
-    <!-- <distributionManagement>
-        <repository>
-            <id>central</id>
-            <url>https://central.sonatype.com/api/v1/publisher</url>
-        </repository>
-    </distributionManagement> -->
-
-    <distributionManagement>
-        <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
-        </snapshotRepository>
-        <repository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-        </repository>
-    </distributionManagement>
 
     <!-- ========================= -->
     <!-- BUILD -->
@@ -158,23 +117,50 @@
                 </executions>
             </plugin>
 
-            <!-- GPG SIGN -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>3.1.0</version>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
         </plugins>
     </build>
+
+    <profiles>
+        <!-- =============================================================== -->
+        <!-- Profil untuk deployment ke lingkungan Produksi (Release)        -->
+        <!-- Aktifkan dengan: mvn deploy -P release                          -->
+        <!-- =============================================================== -->
+        <profile>
+            <id>release</id>
+            <distributionManagement>
+                <repository>
+                    <id>nexus-releases</id>
+                    <name>Nexus Release Repository</name>
+                    <url>http://10.3.1.67:8081/repository/maven-releases/</url>
+                </repository>
+            </distributionManagement>
+        </profile>
+
+        <profile>
+            <id>release-213</id>
+            <distributionManagement>
+                <repository>
+                    <id>nexus-releases</id>
+                    <name>Nexus Release Repository</name>
+                    <url>http://10.1.40.213:31807/repository/maven-releases/</url>
+                </repository>
+            </distributionManagement>
+        </profile>
+
+        <!-- =============================================================== -->
+        <!-- Profil untuk deployment ke lingkungan Development (Snapshot)    -->
+        <!-- Aktifkan dengan: mvn deploy -P release-dev                      -->
+        <!-- =============================================================== -->
+        <profile>
+            <id>release-dev</id>
+            <distributionManagement>
+                <snapshotRepository>
+                    <id>nexus-snapshots</id>
+                    <name>Nexus Snapshot Repository</name>
+                    <url>http://10.1.40.213:31807/repository/maven-snapshots/</url>
+                </snapshotRepository>
+            </distributionManagement>
+        </profile>
+    </profiles>
 
 </project>
