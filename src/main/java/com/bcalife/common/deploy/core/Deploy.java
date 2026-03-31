@@ -481,13 +481,18 @@ public class Deploy {
             helmCmd + " search repo bcalife-helm/universal-platform | head -n 2";
         execProcessInherit(searchRepoCmd);
 
-        Path envFile = Paths.get(rootDir, "src", "main", "resources", ".env");
+        // Path envFile = Paths.get(rootDir, "src", "main", "resources", ".env");
         List<String> helmEnvArgs = new ArrayList<>();
+
+        Optional<Path> optionalEnv = EnvLocator.find(rootDir);
 
         System.out.println(GRAY + "[*] Preparing Environment (.env) Variables for Helm..." + RESET);
 
-        if (Files.exists(envFile)) {
-            System.out.println(GREEN + "[OK] .env file found. Injecting to Helm..." + RESET);
+        if (optionalEnv.isPresent()) {
+            Path envFile = optionalEnv.get();
+            System.out.println(GREEN + "[OK] .env file found at: " + envFile.toAbsolutePath() + RESET);
+            System.out.println(GRAY + "[*] Injecting to Helm..." + RESET);
+            
             List<String> lines = Files.readAllLines(envFile);
             for (String line : lines) {
                 if (line.contains("=") && !line.trim().startsWith("#")) {
@@ -499,7 +504,7 @@ public class Deploy {
                 }
             }
         } else {
-            System.out.println(YELLOW + "[!] .env file not found! Using fallback defaults." + RESET);
+            System.out.println(YELLOW + "[!] .env file completely not found anywhere! Using fallback defaults." + RESET);
             helmEnvArgs.addAll(Arrays.asList(
                     "--set", "env.APP_ENV=dev",
                     "--set", "env.CONSUL_HOST=10.1.40.240",
