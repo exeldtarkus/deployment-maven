@@ -143,6 +143,329 @@ public class Deploy {
             }
         }
 
+        // --- STEP INITIAL CHECK ---
+        System.out.println("\n" + YELLOW + "[CHECK] Executing pre-flight checks..." + RESET);
+
+        // [CHECK] - 1. Check Kubernetes Contexts
+        System.out.println(GRAY + " > Checking Kubernetes contexts..." + RESET);
+        String kubeContextsOut = execCommand("kubectl config get-contexts -o name", false).trim();
+        List<String> contexts = new ArrayList<>();
+        
+        if (!kubeContextsOut.isEmpty() && !kubeContextsOut.toLowerCase().contains("error")) {
+            for (String line : kubeContextsOut.split("\n")) {
+                if (!line.trim().isEmpty()) {
+                    contexts.add(line.trim());
+                }
+            }
+        }
+
+        Path kubeConfigDeployPath = Paths.get(rootDir, deployDir, "kube-config.yml");
+        Path kubeConfigDefaultPath = Paths.get(System.getProperty("user.home"), ".kube", "config");
+
+        if (contexts.isEmpty()) {
+            if (!Files.exists(kubeConfigDeployPath)) {
+                // Create dummy file and exit
+                String dummyKubeConfig = "apiVersion: v1\n" +
+                        "clusters:\n" +
+                        "- cluster:\n" +
+                        "    certificate-authority-data: xx==\n" +
+                        "    server: https://1.1.1.1:8080\n" +
+                        "  name: microk8s-cluster-213\n" +
+                        "contexts:\n" +
+                        "- context:\n" +
+                        "    cluster: microk8s-cluster-213\n" +
+                        "    user: admin\n" +
+                        "  name: microk8s-cluster-213\n" +
+                        "users:\n" +
+                        "- name: admin\n" +
+                        "  user:\n" +
+                        "    client-certificate-data: xx\n" +
+                        "    client-key-data: xxxx\n" +
+                        "kind: Config\n" +
+                        "preferences: {}";
+                Files.write(kubeConfigDeployPath, dummyKubeConfig.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                System.out.println(YELLOW + "[!] No Kubernetes contexts found, and " + kubeConfigDeployPath.getFileName() + " does not exist." + RESET);
+                System.out.println(YELLOW + "[!] A template has been generated at: " + kubeConfigDeployPath.toAbsolutePath() + RESET);
+                System.out.println(LIGHT_YELLOW + "[!] ACTION REQUIRED: Please edit this file with your cluster details, then run this deployment tool again." + RESET);
+                System.exit(1);
+            } else {
+                // Copy existing deployment/kube-config.yml to default .kube/config
+                System.out.println(GRAY + " > Copying " + kubeConfigDeployPath.getFileName() + " to default kube location (" + kubeConfigDefaultPath.toString() + ")..." + RESET);
+                Files.createDirectories(kubeConfigDefaultPath.getParent());
+                Files.copy(kubeConfigDeployPath, kubeConfigDefaultPath, StandardCopyOption.REPLACE_EXISTING);
+                
+                // Re-fetch contexts after copying
+                kubeContextsOut = execCommand("kubectl config get-contexts -o name", false).trim();
+                if (!kubeContextsOut.isEmpty() && !kubeContextsOut.toLowerCase().contains("error")) {
+                    for (String line : kubeContextsOut.split("\n")) {
+                        if (!line.trim().isEmpty()) {
+                            contexts.add(line.trim());
+                        }
+                    }
+                }
+                
+                if (contexts.isEmpty()) {
+                    System.out.println(RED + "[X] CRITICAL ERROR: Copied kube config but still no valid contexts found. Please check the file format." + RESET);
+                    System.exit(1);
+                }
+            }
+        }
+
+        // Display context choices to user
+        System.out.println(CYAN + "Available Kubernetes Contexts:" + RESET);
+        for (int i = 0; i < contexts.size(); i++) {
+            System.out.println("  " + (i + 1) + ") " + contexts.get(i));
+        }
+
+        String selectedContext = "";
+        while (true) {
+            System.out.print(" > Select Context (1-" + contexts.size() + "): ");
+            String ctxInput = scanner.nextLine().trim();
+            try {
+                int ctxChoice = Integer.parseInt(ctxInput);
+                if (ctxChoice >= 1 && ctxChoice <= contexts.size()) {
+                    selectedContext = contexts.get(ctxChoice - 1);
+                    break;
+                } else {
+                    System.out.println(" > " + RED + "[!] Number out of range. Please choose between 1 and " + contexts.size() + RESET);
+                }
+            } catch (NumberFormatException e) {
+                System.out.println(" > " + RED + "[!] Invalid input. Please enter a valid integer number." + RESET);
+            }
+        }
+
+        System.out.println(GRAY + " > Switching to context: " + selectedContext + "..." + RESET);
+        execCommand("kubectl config use-context " + selectedContext, false);
+        System.out.println(GREEN + "[OK] Kubernetes context set to: " + selectedContext + RESET);
+
+        // [CHECK] - 2. Check if Docker is active (Compatible with PowerShell and Bash)
+        System.out.println(GRAY + " > Checking if Docker is active..." + RESET);
+        try {
+            String dockerCmd = IS_WINDOWS ? 
+                "docker info 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }" : 
+                "docker info >/dev/null 2>&1";
+
+            ProcessBuilder pb = IS_WINDOWS ?
+                new ProcessBuilder("powershell.exe", "-Command", dockerCmd) :
+                new ProcessBuilder("bash", "-c", dockerCmd);
+            
+            Process p = pb.start();
+            if (p.waitFor() != 0) {
+                System.out.println(RED + "[X] CRITICAL ERROR: Docker is not active or not running. Please start Docker." + RESET);
+                System.exit(1);
+            }
+            System.out.println(GREEN + "[OK] Docker daemon is active." + RESET);
+        } catch (Exception e) {
+            System.out.println(RED + "[X] CRITICAL ERROR: Failed to execute 'docker info'. Is Docker installed and in PATH?" + RESET);
+            System.exit(1);
+        }
+
+        // [CHECK] - 3 & 4. Check settings.xml for Nexus config and test HTTP 200 connection
+        System.out.println(GRAY + " > Checking Nexus mirror configuration and connection..." + RESET);
+        String settingsContentInit = new String(Files.readAllBytes(deployM2File));
+        
+        if (!settingsContentInit.contains("<id>nexus</id>")) {
+            System.out.println(RED + "[X] CRITICAL ERROR: settings.xml is missing <id>nexus</id> tag." + RESET);
+            System.exit(1);
+        }
+
+        // Ekstrak URL dari tag <mirror>
+        Matcher mirrorBlockMatcher = Pattern.compile("<mirror>([\\s\\S]*?)</mirror>").matcher(settingsContentInit);
+        String nexusUrlTest = "";
+        while (mirrorBlockMatcher.find()) {
+            String mirrorBlock = mirrorBlockMatcher.group(1);
+            if (mirrorBlock.contains("<id>nexus</id>")) {
+                Matcher urlM = Pattern.compile("<url>(.*?)</url>").matcher(mirrorBlock);
+                if (urlM.find()) nexusUrlTest = urlM.group(1).trim();
+                break;
+            }
+        }
+
+        String nexusHost = "";
+        
+        if (!nexusUrlTest.isEmpty()) {
+            try {
+                URL urlObj = new URL(nexusUrlTest);
+                nexusHost = urlObj.getHost(); // Ekstrak host untuk test koneksi TCP di bawah
+                
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) urlObj.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(5000); // Timeout 5 detik
+                
+                // Ekstrak username & password dari tag <server>
+                Matcher serverBlockMatcher = Pattern.compile("<server>([\\s\\S]*?)</server>").matcher(settingsContentInit);
+                String username = "";
+                String password = "";
+
+                while (serverBlockMatcher.find()) {
+                    String serverBlock = serverBlockMatcher.group(1);
+                    if (serverBlock.contains("<id>nexus</id>")) {
+                        Matcher uMatch = Pattern.compile("<username>(.*?)</username>").matcher(serverBlock);
+                        if (uMatch.find()) username = uMatch.group(1).trim();
+                        
+                        Matcher pMatch = Pattern.compile("<password>(.*?)</password>").matcher(serverBlock);
+                        if (pMatch.find()) password = pMatch.group(1).trim();
+                        break;
+                    }
+                }
+                
+                if (!username.isEmpty() && !password.isEmpty()) {
+                    String auth = username + ":" + password;
+                    String encodedAuth = java.util.Base64.getEncoder().encodeToString(auth.getBytes());
+                    conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
+                    System.out.println(GRAY + " > Validating using credentials for user: " + username + "..." + RESET);
+                } else {
+                    System.out.println(YELLOW + " > [!] No credentials found in <server> block for 'nexus'. Attempting anonymous request." + RESET);
+                }
+                
+                int responseCode = conn.getResponseCode();
+                
+                if (responseCode == 401) {
+                    System.out.println(RED + "[X] CRITICAL ERROR: Received HTTP 401 (Unauthorized). Username/Password is incorrect or missing in settings.xml!" + RESET);
+                    System.exit(1);
+                } else if (responseCode != 200) {
+                    System.out.println(RED + "[X] CRITICAL ERROR: Connection to Nexus failed! Expected HTTP 200 but got HTTP " + responseCode + RESET);
+                    System.exit(1);
+                }
+                
+                System.out.println(GREEN + "[OK] Successfully connected and authenticated to Nexus Maven HTTP." + RESET);
+                
+            } catch (Exception e) {
+                System.out.println(RED + "[X] CRITICAL ERROR: Could not connect to Nexus at " + nexusUrlTest + ". Exception: " + e.getMessage() + RESET);
+                System.exit(1);
+            }
+        } else {
+            System.out.println(RED + "[X] CRITICAL ERROR: Could not parse Nexus <url> from settings.xml inside <mirror> block." + RESET);
+            System.exit(1);
+        }
+
+        // [CHECK] - 5. Check deployment/secret-k8s.json for port-nexus-docker
+        System.out.println(GRAY + " > Checking secret-k8s.json for port-nexus-docker..." + RESET);
+        Path secretK8sPath = Paths.get(rootDir, deployDir, "secret-k8s.json");
+        int portNexusDocker = 31208; // Default value
+        boolean needToAskPort = false;
+
+        if (Files.exists(secretK8sPath)) {
+            String secretContent = new String(Files.readAllBytes(secretK8sPath));
+            Matcher portMatcher = Pattern.compile("\"port-nexus-docker\"\\s*:\\s*(\\d+)").matcher(secretContent);
+            if (portMatcher.find()) {
+                portNexusDocker = Integer.parseInt(portMatcher.group(1));
+                System.out.println(GREEN + "[OK] Found port-nexus-docker: " + portNexusDocker + " in secret-k8s.json" + RESET);
+            } else {
+                needToAskPort = true;
+            }
+        } else {
+            needToAskPort = true;
+        }
+
+        if (needToAskPort) {
+            while (true) {
+                System.out.print(" > Enter port-nexus-docker [Default: 31208]: ");
+                String userPort = scanner.nextLine().trim();
+                if (userPort.isEmpty()) {
+                    portNexusDocker = 31208;
+                    break;
+                } else if (userPort.matches("^\\d+$")) {
+                    portNexusDocker = Integer.parseInt(userPort);
+                    break;
+                } else {
+                    System.out.println(" > " + RED + "[!] Invalid input. Please enter a valid integer number." + RESET);
+                }
+            }
+            
+            // Simpan atau buat file secret-k8s.json
+            String jsonContent = "{\n  \"port-nexus-docker\": " + portNexusDocker + "\n}";
+            Files.write(secretK8sPath, jsonContent.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            System.out.println(GREEN + "[OK] Saved port-nexus-docker (" + portNexusDocker + ") to " + secretK8sPath.getFileName() + RESET);
+        }
+
+        // [CHECK] - 6. Test TCP Connection to ${hostNexus}:${port-nexus-docker}
+        System.out.println(GRAY + " > Testing TCP connection to Nexus Docker Registry (" + nexusHost + ":" + portNexusDocker + ")..." + RESET);
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress(nexusHost, portNexusDocker), 5000); // 5 detik timeout
+            System.out.println(GREEN + "[OK] Connection to Nexus Docker Registry successful." + RESET);
+        } catch (Exception e) {
+            System.out.println(RED + "[X] CRITICAL ERROR: Could not connect to Nexus Docker Registry at " + nexusHost + ":" + portNexusDocker + ". Exception: " + e.getMessage() + RESET);
+            System.exit(1);
+        }
+
+        // [CHECK] - 7. Docker Insecure Registry Configuration (Detect, Inject, Apply)
+        String targetRegistry = nexusHost + ":" + portNexusDocker;
+        System.out.println(GRAY + " > Checking Docker insecure-registries configuration for " + targetRegistry + "..." + RESET);
+
+        // --- 1. MENDETEKSI ---
+        String dockerInfoCmd2 = IS_WINDOWS ?
+            "if (docker info 2>$null | Select-String '" + targetRegistry + "') { echo 'FOUND' } else { echo 'MISSING' }" : 
+            "docker info 2>/dev/null | grep -A 20 'Insecure Registries:' | grep '" + targetRegistry + "' || echo 'MISSING'";
+        String dockerInfoStr = execCommand(dockerInfoCmd2, false).trim();
+
+        if (!dockerInfoStr.contains("MISSING")) {
+            System.out.println(GREEN + "[OK] " + targetRegistry + " is already registered in insecure-registries." + RESET);
+        } else {
+            System.out.println(YELLOW + "[!] " + targetRegistry + " is NOT in insecure-registries. Injecting automatically..." + RESET);
+            
+            // --- 2. MENGINJEKSI OTOMATIS ---
+            String checkJqCmd = IS_WINDOWS ? "echo 'NO_JQ'" : "command -v jq || echo 'NO_JQ'";
+            String checkJq = execCommand(checkJqCmd, false).trim();
+            
+            // Instal jq di Linux jika belum ada (untuk manipulasi JSON)
+            if (checkJq.equals("NO_JQ") && !IS_WINDOWS) {
+                System.out.println(GRAY + "   > Installing 'jq' for JSON parsing..." + RESET);
+                execProcessInherit("sudo apt-get update && sudo apt-get install -y jq");
+            }
+
+            String daemonJson = IS_WINDOWS ? System.getProperty("user.home") + "\\.docker\\daemon.json" : "/etc/docker/daemon.json";
+            
+            if (Files.exists(Paths.get(daemonJson))) {
+                // Update file JSON yang sudah ada
+                if (IS_WINDOWS) {
+                    String psJson = "$j = Get-Content '" + daemonJson + "' -Raw | ConvertFrom-Json; " +
+                                    "if (-not $j.'insecure-registries') { Add-Member -InputObject $j -Name 'insecure-registries' -Value @() -MemberType NoteProperty }; " +
+                                    "if ($j.'insecure-registries' -notcontains '" + targetRegistry + "') { $j.'insecure-registries' += '" + targetRegistry + "' }; " +
+                                    "$j | ConvertTo-Json -Depth 10 | Set-Content '" + daemonJson + "'";
+                    execCommand(psJson, false);
+                } else {
+                    execCommand("sudo jq '. | .\"insecure-registries\" += [\"" + targetRegistry + "\"] | .\"insecure-registries\" |= unique' " + daemonJson + " > /tmp/daemon.json.tmp", false);
+                    execCommand("sudo mv /tmp/daemon.json.tmp " + daemonJson, false);
+                }
+            } else {
+                // Buat file JSON baru dari awal jika belum ada
+                if (IS_WINDOWS) {
+                    execCommand("New-Item -ItemType Directory -Force -Path (Split-Path '" + daemonJson + "') | Out-Null; @{ 'insecure-registries' = @('" + targetRegistry + "') } | ConvertTo-Json -Depth 10 | Set-Content '" + daemonJson + "'", false);
+                } else {
+                    execCommand("sudo mkdir -p /etc/docker && echo '{ \"insecure-registries\": [\"" + targetRegistry + "\"] }' | sudo tee " + daemonJson, false);
+                }
+            }
+            System.out.println(GREEN + "[OK] Registry URL automatically injected into " + daemonJson + "." + RESET);
+
+            // --- 3. MENERAPKAN PERUBAHAN (RESTART DOCKER) ---
+            System.out.println(GRAY + " > Applying changes by restarting Docker daemon..." + RESET);
+            
+            // Cek apakah Docker berjalan sebagai Native Service (Systemd di Linux / Windows Service)
+            String checkDockerServiceCmd = IS_WINDOWS ? 
+                "if (Get-Service docker -ErrorAction SilentlyContinue | Where-Object Status -eq 'Running') { echo 'ACTIVE' } else { echo 'INACTIVE' }" : 
+                "command -v systemctl >/dev/null && systemctl is-active --quiet docker && echo 'ACTIVE' || echo 'INACTIVE'";
+            String isSystemdDockerActive = execCommand(checkDockerServiceCmd, false).trim();
+            
+            if ("ACTIVE".equals(isSystemdDockerActive)) {
+                // Restart otomatis jika native service
+                String restartCmd = IS_WINDOWS ? "Restart-Service docker" : "sudo systemctl restart docker";
+                execCommand(restartCmd, false);
+                System.out.println(GREEN + "[OK] Docker daemon restarted successfully." + RESET);
+                
+                // Jeda 3 detik agar Docker daemon benar-benar up kembali sebelum script lanjut
+                try { Thread.sleep(3000); } catch (InterruptedException e) {} 
+            } else {
+                // Jika user memakai Docker Desktop, restart tidak bisa ditembak via terminal secara mulus. 
+                // Script akan memberitahu user untuk menekan 'Apply & Restart' di GUI.
+                System.out.println(RED + "[!] Cannot restart docker automatically (Docker Desktop detected or lacking permissions)." + RESET);
+                System.out.println(LIGHT_YELLOW + "[!] ACTION REQUIRED: Please open Docker Desktop GUI -> Settings -> Docker Engine." + RESET);
+                System.out.println(LIGHT_YELLOW + "[!] Ensure \"" + targetRegistry + "\" is in the insecure-registries array, then click 'Apply & restart'." + RESET);
+                System.out.print("Press [Enter] once you have restarted Docker Desktop...");
+                scanner.nextLine();
+            }
+        }
+
         // --- STEP 4: Network & Registry Discovery ---
         System.out.println(YELLOW + "[3/7] Discovering Nexus Registry details..." + RESET);
         String settingsContent = new String(Files.readAllBytes(deployM2File));
@@ -160,13 +483,22 @@ public class Deploy {
             System.exit(1);
         }
 
-        System.out.println(GRAY + "[*] Fetching Docker NodePort from Kubernetes..." + RESET);
-        execCommand("kubectl config use-context microk8s", false);
+        System.out.println(GRAY + "[*] Fetching Docker NodePort from deployment/secret-k8s.json..." + RESET);
+        String kubePort = "";
+        Path secretPath = Paths.get(rootDir, deployDir, "secret-k8s.json");
         
-        String kubePortCmd = IS_WINDOWS ?
-            "kubectl get svc nexus-docker-service -o=jsonpath='{.spec.ports[0].nodePort}'" :
-            "kubectl get svc nexus-docker-service -o=jsonpath='{.spec.ports[0].nodePort}'";
-        String kubePort = execCommand(kubePortCmd, false).trim();
+        if (Files.exists(secretPath)) {
+            String secretContent = new String(Files.readAllBytes(secretPath));
+            Matcher portMatcher = Pattern.compile("\"port-nexus-docker\"\\s*:\\s*(\\d+)").matcher(secretContent);
+            if (portMatcher.find()) {
+                kubePort = portMatcher.group(1);
+            }
+        }
+
+        if (kubePort.isEmpty()) {
+            System.out.println(RED + "[X] CRITICAL ERROR: Could not read 'port-nexus-docker' from secret-k8s.json!" + RESET);
+            System.exit(1);
+        }
 
         System.out.println(GREEN + "[OK] Nexus (nexus-docker-service) Credentials" + RESET);
 
@@ -282,71 +614,6 @@ public class Deploy {
         System.out.println(YELLOW + "[5/7] Building and Pushing Docker Image..." + RESET);
         String appIdFinal = appId.toLowerCase();
         String nexusImage = nexusRegistryUrl + ":" + nexusRegistryPortDocker + "/" + appIdFinal + "-app:" + combinedTag;
-        String targetRegistry = nexusRegistryUrl + ":" + nexusRegistryPortDocker;
-
-        System.out.println(GRAY + "[*] Checking Docker insecure-registries configuration..." + RESET);
-        
-        String dockerInfoCmd = IS_WINDOWS ?
-            "if (docker info 2>$null | Select-String '" + targetRegistry + "') { echo 'FOUND' } else { echo 'MISSING' }" : 
-            "docker info 2>/dev/null | grep -A 20 'Insecure Registries:' | grep '" + targetRegistry + "' || echo 'MISSING'";
-        String dockerInfoStr = execCommand(dockerInfoCmd, false).trim();
-        
-        if (!dockerInfoStr.contains("MISSING")) {
-            System.out.println(GREEN + "[OK] " + targetRegistry + " is already allowed." + RESET);
-        } else {
-            System.out.println(YELLOW + "[!] " + targetRegistry + " is NOT in insecure-registries!" + RESET);
-            System.out.println(GRAY + "[*] Attempting to update daemon.json..." + RESET);
-
-            String checkJqCmd = IS_WINDOWS ? "echo 'NO_JQ'" : "command -v jq || echo 'NO_JQ'";
-            String checkJq = execCommand(checkJqCmd, false).trim();
-            
-            if (checkJq.equals("NO_JQ")) {
-                System.out.println(YELLOW + "[*] Installing 'jq' for JSON parsing..." + RESET);
-                String installJqCmd = IS_WINDOWS ? "echo 'Bypassed jq install on Windows'" : "sudo apt-get update && sudo apt-get install -y jq";
-                execProcessInherit(installJqCmd);
-            }
-
-            String daemonJson = IS_WINDOWS ? System.getProperty("user.home") + "\\.docker\\daemon.json" : "/etc/docker/daemon.json";
-            
-            if (Files.exists(Paths.get(daemonJson))) {
-                if (IS_WINDOWS) {
-                    String psJson = "$j = Get-Content '" + daemonJson + "' -Raw | ConvertFrom-Json; " +
-                                    "if (-not $j.'insecure-registries') { Add-Member -InputObject $j -Name 'insecure-registries' -Value @() -MemberType NoteProperty }; " +
-                                    "if ($j.'insecure-registries' -notcontains '" + targetRegistry + "') { $j.'insecure-registries' += '" + targetRegistry + "' }; " +
-                                    "$j | ConvertTo-Json -Depth 10 | Set-Content '" + daemonJson + "'";
-                    execCommand(psJson, false);
-                } else {
-                    execCommand("sudo jq '. | .\"insecure-registries\" += [\"" + targetRegistry + "\"] | .\"insecure-registries\" |= unique' " + daemonJson + " > /tmp/daemon.json.tmp", false);
-                    execCommand("sudo mv /tmp/daemon.json.tmp " + daemonJson, false);
-                }
-            } else {
-                if (IS_WINDOWS) {
-                    execCommand("New-Item -ItemType Directory -Force -Path (Split-Path '" + daemonJson + "') | Out-Null; @{ 'insecure-registries' = @('" + targetRegistry + "') } | ConvertTo-Json -Depth 10 | Set-Content '" + daemonJson + "'", false);
-                } else {
-                    execCommand("echo '{ \"insecure-registries\": [\"" + targetRegistry + "\"] }' | sudo tee " + daemonJson, false);
-                }
-            }
-
-            System.out.println(GREEN + "[OK] Registry added to " + daemonJson + "." + RESET);
-
-            String checkDockerServiceCmd = IS_WINDOWS ? 
-                "if (Get-Service docker -ErrorAction SilentlyContinue | Where-Object Status -eq 'Running') { echo 'ACTIVE' } else { echo 'INACTIVE' }" : 
-                "command -v systemctl >/dev/null && systemctl is-active --quiet docker && echo 'ACTIVE' || echo 'INACTIVE'";
-            String isSystemdDockerActive = execCommand(checkDockerServiceCmd, false).trim();
-            
-            if ("ACTIVE".equals(isSystemdDockerActive)) {
-                System.out.println(GRAY + "[*] Restarting Docker daemon to apply changes..." + RESET);
-                String restartCmd = IS_WINDOWS ? "Restart-Service docker" : "sudo systemctl restart docker";
-                execCommand(restartCmd, false);
-                Thread.sleep(3000);
-            } else {
-                System.out.println(RED + "[!] Cannot restart docker automatically (Docker Desktop detected)." + RESET);
-                System.out.println(LIGHT_YELLOW + "[!] ACTION REQUIRED: Please open Docker Desktop GUI -> Settings -> Docker Engine." + RESET);
-                System.out.println(LIGHT_YELLOW + "[!] Ensure \"" + targetRegistry + "\" is in the insecure-registries array, then click 'Apply & restart'." + RESET);
-                System.out.print("Press [Enter] once you have restarted Docker Desktop...");
-                scanner.nextLine();
-            }
-        }
 
         System.out.println(GRAY + "[*] Building Docker Image..." + RESET);
         int buildExit = execProcessInherit("docker build --progress=plain --build-arg APP_IDENTITY=\"" + appIdFinal + "\" -t \"" + nexusImage + "\" -f \"" + rootDir + "/Dockerfile\" \"" + rootDir + "\"");
